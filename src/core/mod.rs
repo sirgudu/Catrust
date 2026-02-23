@@ -18,6 +18,8 @@
 
 pub mod typeside;
 pub mod schema;
+pub mod optimize;
+pub mod query;
 pub mod instance;
 pub mod mapping;
 pub mod migrate;

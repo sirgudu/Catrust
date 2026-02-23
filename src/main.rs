@@ -221,4 +221,114 @@ fn main() {
     println!("  {} lignes migrées via Σ", instance_new.total_rows());
     println!("  4 backends supportés : PostgreSQL, Snowflake, Trino, Neo4j");
     println!("═══════════════════════════════════════════════════");
+
+    // ═══════════════════════════════════════════════════════════
+    // ÉTAPE 8 : Optimisation catégorique des chemins (JOINs)
+    // ═══════════════════════════════════════════════════════════
+    println!("\n═══ ÉTAPE 8 : Optimisation catégorique (JOIN elimination) ═══\n");
+
+    // On crée un schéma avec une path equation exploitable
+    let mut schema_optim = Schema::new("CompanyOptim");
+    schema_optim
+        .add_node("Employee")
+        .add_node("Department")
+        .add_fk("department", "Employee", "Department")
+        .add_fk("manager", "Department", "Employee")
+        .add_fk("direct_mgr", "Employee", "Employee")
+        .add_attribute("emp_name", "Employee", BaseType::String)
+        .add_attribute("salary", "Employee", BaseType::Integer)
+        .add_attribute("dept_name", "Department", BaseType::String)
+        // ÉQUATION CATÉGORIQUE : employee.department.manager = employee.direct_mgr
+        // Cela signifie : "le manager du département = le manager direct"
+        .add_path_equation(
+            Path::new("Employee", vec!["department", "manager"]),
+            Path::new("Employee", vec!["direct_mgr"]),
+        );
+
+    println!("{}\n", schema_optim);
+
+    // Démontrer l'optimisation de chemins
+    use catrust::core::optimize::PathOptimizer;
+
+    let optimizer = PathOptimizer::from_schema(&schema_optim);
+
+    let paths_to_optimize = vec![
+        Path::new("Employee", vec!["department", "manager"]),
+        Path::new("Employee", vec!["department", "manager", "department"]),
+        Path::new("Employee", vec!["department", "manager", "department", "manager"]),
+        Path::new("Employee", vec!["direct_mgr"]),
+    ];
+
+    for path in &paths_to_optimize {
+        let result = optimizer.optimize(path);
+        if result.joins_eliminated > 0 {
+            println!("  AVANT : {} ({} JOINs)", result.original, result.original.len());
+            println!("  APRÈS : {} ({} JOINs)  → {} JOIN(s) éliminé(s) ✓",
+                     result.optimized, result.optimized.len(), result.joins_eliminated);
+            for rule in &result.rules_applied {
+                println!("    Règle : {}", rule);
+            }
+        } else {
+            println!("  {} → déjà optimal ({} JOIN)", path, path.len());
+        }
+        println!();
+    }
+
+    // Démontrer la génération SQL optimisée
+    use catrust::core::query::*;
+    use catrust::backend::sql::planner::SqlPlanner;
+
+    println!("--- Requête CQL → SQL optimisé (PostgreSQL) ---\n");
+
+    let planner = SqlPlanner::new(&PostgresDialect, &schema_optim);
+
+    let mut query = CqlQuery::new("FindByManager", "CompanyOptim");
+    query.add_block(QueryBlock {
+        target_entity: "Result".into(),
+        from_vars: HashMap::from([("e".into(), "Employee".into())]),
+        where_clauses: vec![
+            WhereClause::Comparison {
+                var: "e".into(),
+                // Chemin LONG : e.department.manager.emp_name (2 JOINs + attribut)
+                path: vec!["department".into(), "manager".into(), "emp_name".into()],
+                op: CompOp::Eq,
+                value: Value::String("Alice".into()),
+            },
+        ],
+        attribute_bindings: HashMap::from([
+            ("name".into(), AttributeBinding {
+                from_var: "e".into(),
+                path: vec![],
+                attribute: "emp_name".into(),
+            }),
+            ("salary".into(), AttributeBinding {
+                from_var: "e".into(),
+                path: vec![],
+                attribute: "salary".into(),
+            }),
+        ]),
+        fk_bindings: HashMap::new(),
+    });
+
+    let plans = planner.plan_query(&query);
+    for plan in &plans {
+        println!("{}", plan);
+    }
+
+    // Analyse complète du schéma
+    println!("--- Analyse d'optimisation du schéma ---\n");
+    let analysis = optimizer.analyze_schema(&schema_optim);
+    if analysis.is_empty() {
+        println!("  Aucune optimisation trouvée (déjà optimal).");
+    } else {
+        println!("  {} optimisation(s) possibles :", analysis.len());
+        for r in &analysis {
+            println!("    {} → {} ({} JOIN(s) éliminé(s))", r.original, r.optimized, r.joins_eliminated);
+        }
+    }
+
+    println!("\n═══════════════════════════════════════════════════");
+    println!("Catrust — Moteur CQL catégorique complet");
+    println!("  38 tests · 4 backends · optimiseur de chemins");
+    println!("═══════════════════════════════════════════════════");
 }

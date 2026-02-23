@@ -13,6 +13,8 @@
 //
 // =============================================================================
 
+pub mod planner;
+
 use crate::core::schema::{Schema, Edge};
 use crate::core::instance::Instance;
 use crate::core::mapping::Mapping;
