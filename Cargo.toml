@@ -1,0 +1,13 @@
+[package]
+name = "catrust"
+version = "0.1.0"
+edition = "2021"
+description = "CQL (Categorical Query Language) engine in Rust — data migrations via category theory"
+
+[dependencies]
+# Pour le moment, zéro dépendance externe : le cœur catégorique est pur.
+# On ajoutera plus tard :
+# - sqlx ou tokio-postgres pour PostgreSQL
+# - neo4rs pour Neo4j
+# - serde pour la sérialisation
+# - pest ou nom pour le parseur CQL
