@@ -329,6 +329,131 @@ fn main() {
 
     println!("\n═══════════════════════════════════════════════════");
     println!("Catrust — Moteur CQL catégorique complet");
-    println!("  38 tests · 4 backends · optimiseur de chemins");
+    println!("  46 tests · 4 backends · optimiseur · évaluateur in-memory");
     println!("═══════════════════════════════════════════════════");
+
+    // ═══════════════════════════════════════════════════════════
+    // ÉTAPE 9 : Évaluation in-memory (zéro DB !)
+    // ═══════════════════════════════════════════════════════════
+    println!("\n═══ ÉTAPE 9 : Évaluateur in-memory (zéro DB) ═══\n");
+
+    // Réutilisons le schéma Company simple
+    use catrust::core::eval;
+
+    let mut schema_eval = Schema::new("Company");
+    schema_eval
+        .add_node("Employee")
+        .add_node("Department")
+        .add_fk("works_in", "Employee", "Department")
+        .add_attribute("emp_name", "Employee", BaseType::String)
+        .add_attribute("salary", "Employee", BaseType::Integer)
+        .add_attribute("dept_name", "Department", BaseType::String);
+
+    let mut inst_eval = Instance::new("Données", &schema_eval);
+    let d1 = inst_eval.insert("Department",
+        HashMap::from([("dept_name".into(), Value::String("Engineering".into()))]),
+        HashMap::new(),
+    );
+    let d2 = inst_eval.insert("Department",
+        HashMap::from([("dept_name".into(), Value::String("Marketing".into()))]),
+        HashMap::new(),
+    );
+    inst_eval.insert("Employee",
+        HashMap::from([
+            ("emp_name".into(), Value::String("Alice".into())),
+            ("salary".into(), Value::Integer(90000)),
+        ]),
+        HashMap::from([("works_in".into(), d1)]),
+    );
+    inst_eval.insert("Employee",
+        HashMap::from([
+            ("emp_name".into(), Value::String("Bob".into())),
+            ("salary".into(), Value::Integer(75000)),
+        ]),
+        HashMap::from([("works_in".into(), d1)]),
+    );
+    inst_eval.insert("Employee",
+        HashMap::from([
+            ("emp_name".into(), Value::String("Charlie".into())),
+            ("salary".into(), Value::Integer(60000)),
+        ]),
+        HashMap::from([("works_in".into(), d2)]),
+    );
+    inst_eval.insert("Employee",
+        HashMap::from([
+            ("emp_name".into(), Value::String("Diana".into())),
+            ("salary".into(), Value::Integer(85000)),
+        ]),
+        HashMap::from([("works_in".into(), d2)]),
+    );
+
+    // Requête 1 : Ingénieurs gagnant + de 80k
+    let mut q1 = CqlQuery::new("SeniorEngineers", "Company");
+    q1.add_block(QueryBlock {
+        target_entity: "Result".into(),
+        from_vars: HashMap::from([("e".into(), "Employee".into())]),
+        where_clauses: vec![
+            WhereClause::Comparison {
+                var: "e".into(),
+                path: vec!["works_in".into(), "dept_name".into()],
+                op: CompOp::Eq,
+                value: Value::String("Engineering".into()),
+            },
+            WhereClause::Comparison {
+                var: "e".into(),
+                path: vec!["salary".into()],
+                op: CompOp::Gt,
+                value: Value::Integer(80000),
+            },
+        ],
+        attribute_bindings: HashMap::from([
+            ("name".into(), AttributeBinding {
+                from_var: "e".into(), path: vec![], attribute: "emp_name".into(),
+            }),
+            ("salary".into(), AttributeBinding {
+                from_var: "e".into(), path: vec![], attribute: "salary".into(),
+            }),
+            ("dept".into(), AttributeBinding {
+                from_var: "e".into(), path: vec!["works_in".into()], attribute: "dept_name".into(),
+            }),
+        ]),
+        fk_bindings: HashMap::new(),
+    });
+
+    println!("Requête : SELECT name, salary, dept FROM Employee");
+    println!("          WHERE works_in.dept_name = 'Engineering' AND salary > 80000\n");
+
+    let result = eval::eval_query(&q1, &inst_eval, &schema_eval).unwrap();
+    println!("{}", result);
+
+    // Agrégations
+    println!("--- Agrégations in-memory ---");
+
+    // Tous les salaires
+    let mut q_all = CqlQuery::new("AllSalaries", "Company");
+    q_all.add_block(QueryBlock {
+        target_entity: "R".into(),
+        from_vars: HashMap::from([("e".into(), "Employee".into())]),
+        where_clauses: vec![],
+        attribute_bindings: HashMap::from([
+            ("salary".into(), AttributeBinding {
+                from_var: "e".into(), path: vec![], attribute: "salary".into(),
+            }),
+            ("name".into(), AttributeBinding {
+                from_var: "e".into(), path: vec![], attribute: "emp_name".into(),
+            }),
+            ("dept".into(), AttributeBinding {
+                from_var: "e".into(), path: vec!["works_in".into()], attribute: "dept_name".into(),
+            }),
+        ]),
+        fk_bindings: HashMap::new(),
+    });
+
+    let all = eval::eval_query(&q_all, &inst_eval, &schema_eval).unwrap();
+    println!("  COUNT(*) = {}", eval::count(&all, "R"));
+    println!("  SUM(salary) = {}", eval::sum(&all, "R", "salary"));
+    println!("  MIN(salary) = {:?}", eval::min_val(&all, "R", "salary").unwrap());
+    println!("  MAX(salary) = {:?}", eval::max_val(&all, "R", "salary").unwrap());
+    println!("  DISTINCT(dept) = {:?}", eval::distinct(&all, "R", "dept"));
+    println!("  Temps : {}µs", all.eval_time_us);
 }

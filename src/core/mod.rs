@@ -13,6 +13,9 @@
 //   mapping   → le foncteur entre schémas (= comment restructurer)
 //   migrate   → les opérations Δ, Σ, Π (= les migrations catégoriques)
 //   validate  → la vérification de cohérence
+//   optimize  → réécriture de chemins (élimination de JOINs)
+//   query     → requêtes CQL (composition Δ ∘ Σ)
+//   eval      → évaluateur in-memory (zéro DB)
 //
 // =============================================================================
 
@@ -20,6 +23,7 @@ pub mod typeside;
 pub mod schema;
 pub mod optimize;
 pub mod query;
+pub mod eval;
 pub mod instance;
 pub mod mapping;
 pub mod migrate;
